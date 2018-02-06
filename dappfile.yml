@@ -1,0 +1,89 @@
+dimg: app
+from: java:8-jdk-alpine
+shell:
+  beforeInstall:
+    - mkdir /app
+    - adduser -Dh /home/gordon gordon
+import:
+  - artifact: appserver
+    add: '/usr/src/atsea/target/AtSea-0.0.1-SNAPSHOT.jar'
+    to: '/app/AtSea-0.0.1-SNAPSHOT.jar'
+    after: install
+  - artifact: storefront
+    add: /usr/src/atsea/app/react-app/build
+    to: /static
+    after: install
+docker:
+  ENTRYPOINT: ["java", "-jar", "/app/AtSea-0.0.1-SNAPSHOT.jar"]
+  CMD: ["--spring.profiles.active=postgres"]
+
+---
+artifact: storefront
+from: node:latest
+git:
+  - add: /app/react-app
+    to: /usr/src/atsea/app/react-app
+    stageDependencies:
+      install: ['package.json']
+      setup: ['src', 'public']
+shell:
+  install:
+    - cd /usr/src/atsea/app/react-app
+    - npm install
+  setup:
+    - cd /usr/src/atsea/app/react-app
+    - npm run build
+---
+artifact: appserver
+from: maven:latest
+mount:
+  - from: build_dir
+    to: /usr/share/maven/ref/repository
+git:
+  - add: '/app'
+    to: '/usr/src/atsea'
+    stageDependencies:
+      install: ['pom.xml']
+      setup: ['src']
+shell:
+  install:
+    - cd /usr/src/atsea
+    - mvn -B -f pom.xml -s /usr/share/maven/ref/settings-docker.xml dependency:go-offline
+  setup:
+    - cd /usr/src/atsea
+    - mvn -B -s /usr/share/maven/ref/settings-docker.xml package -DskipTests
+---
+dimg: reverse-proxy
+from: nginx:alpine
+git:
+  - add: /reverse_proxy/nginx.conf
+    to: /etc/nginx/nginx.conf
+---
+dimg: payment-gateway
+from: alpine
+git:
+  - add: /payment_gateway/process.sh
+    to: /home/payment/process.sh
+shell:
+  beforeInstall:
+    - adduser -D payment
+docker:
+  CMD: /home/payment/process.sh
+---
+dimg: database
+from: postgres
+git:
+- add: /database/pg_hba.conf
+  to:  /usr/share/postgresql/9.6/pg_hba.conf
+- add: /database/postgresql.conf
+  to: /usr/share/postgresql/9.6/postgresql.conf
+- add: /database/docker-entrypoint-initdb.d/
+  to: /docker-entrypoint-initdb.d/
+shell:
+  beforeInstall:
+    - mkdir -p /images/
+docker:
+  ENV:
+    POSTGRES_USER: gordonuser
+    POSTGRES_DB: atsea
+

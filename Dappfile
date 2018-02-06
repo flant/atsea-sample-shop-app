@@ -1,0 +1,67 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+dimg_group do
+
+  artifact do # артефакт для сборки java приложения
+    docker.from 'maven:latest'
+    git do
+      add '/app' do
+        to '/usr/src/atsea'
+      end
+    end
+
+    shell do
+      install do
+        run 'cd /usr/src/atsea'
+        run 'mvn -B -f pom.xml -s /usr/share/maven/ref/settings-docker.xml dependency:resolve'
+        run 'mvn -B -s /usr/share/maven/ref/settings-docker.xml package -DskipTests'
+      end
+    end
+
+    export '/usr/src/atsea/target/AtSea-0.0.1-SNAPSHOT.jar' do
+      to '/app/AtSea-0.0.1-SNAPSHOT.jar'
+      after :install
+    end
+  end
+
+  artifact do
+    docker.from 'node:latest'
+    git do
+      add '/app/react-app' do
+        to '/usr/src/atsea/app/react-app'
+      end
+    end
+
+    shell do
+      install do
+        run 'cd /usr/src/atsea/app/react-app'
+        run 'npm install'
+        run 'npm run build'
+      end
+    end
+
+    export '/usr/src/atsea/app/react-app/build' do
+      to '/static'
+      after :install
+    end
+  end
+
+  dimg 'app' do
+    docker.from 'java:8-jdk-alpine'
+
+    shell do
+      before_install do
+        run 'mkdir /app'
+        run 'adduser -Dh /home/gordon gordon'
+      end
+    end
+
+    docker do
+      entrypoint "java", "-jar", "/app/AtSea-0.0.1-SNAPSHOT.jar"
+      cmd "--spring.profiles.active=postgres"
+    end
+
+  end
+
+end
